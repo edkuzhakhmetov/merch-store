@@ -1,0 +1,12 @@
+CREATE ROLE merch_service_user WITH
+	LOGIN
+	NOSUPERUSER
+	NOCREATEDB
+	CREATEROLE
+	INHERIT
+	NOREPLICATION
+	NOBYPASSRLS
+	CONNECTION LIMIT -1
+	PASSWORD 'xxxxxx';--Qwerty1234
+
+GRANT merch_service_user TO pg_write_all_data;
