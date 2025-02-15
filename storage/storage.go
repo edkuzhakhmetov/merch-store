@@ -16,7 +16,11 @@ func Connect(ctx context.Context) (*pgx.Conn, error) {
 		os.Getenv("DB_PORT"),
 		os.Getenv("DB_NAME"))
 
-	return pgx.Connect(ctx, dsn)
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		return nil, err
+	}
+	return conn, nil
 }
 
 type StorePostgres struct {

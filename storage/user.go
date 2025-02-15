@@ -71,10 +71,25 @@ func (s *StorePostgres) CreateUser(ctx context.Context, user models.User) (model
 	return newUser, nil
 }
 
-func (s *StorePostgres) GetUserCoins(ctx context.Context, userID int) (int, error) {
+func (s *StorePostgres) GetUserCoinsByUserID(ctx context.Context, userID int) (int, error) {
 	var coins int
 
 	err := s.db.QueryRow(ctx, "SELECT coins FROM merch.user_coins WHERE user_id = $1", userID).Scan(&coins)
 
 	return coins, err
+}
+
+func (s *StorePostgres) GetUserCoinsByUserName(ctx context.Context, userName string) (models.UserCoin, error) {
+	var userCoin models.UserCoin
+
+	err := s.db.QueryRow(ctx,
+		`SELECT u.id, COALESCE(c.coins, 0) AS coins
+		 FROM merch.users u
+		 LEFT JOIN merch.user_coins c ON u.id=c.user_id
+		 WHERE u.username= $1`,
+		userName).Scan(&userCoin.UserID, &userCoin.Coins)
+	if err != nil {
+		return models.UserCoin{}, fmt.Errorf("failed to get user coins: %w", err)
+	}
+	return userCoin, err
 }
