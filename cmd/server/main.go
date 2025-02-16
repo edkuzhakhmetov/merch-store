@@ -32,8 +32,9 @@ func main() {
 
 	pg := storage.NewStore(db)
 
-	us, err := pg.GetUserItemsByUserName(ctx, "ed_6")
-	log.Println(us, err)
+	// us, err := pg.GetCoinHistory(ctx, 8)
+	// log.Println(us, err)
+
 	r := chi.NewRouter()
 
 	api := handler.NewApi(pg)
@@ -41,6 +42,7 @@ func main() {
 	r.Post("/api/auth", api.ApiAuth)
 	r.Post("/api/sendCoin", api.ApiSendCoin)
 	r.Post("/api/buyItem", api.ApiBuyItem)
+	r.Get("/api/info", api.GetInfo)
 	if err := http.ListenAndServe(":8080", r); err != nil {
 		log.Fatalf("FATAL ERROR: Failed ListenAndServe. %v", err.Error())
 

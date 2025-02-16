@@ -2,7 +2,9 @@ package handler
 
 import (
 	"fmt"
+	"net/http"
 	"os"
+	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -51,4 +53,22 @@ func validateJWT(token string) (string, error) {
 	}
 
 	return claims.Username, nil
+}
+
+func validateAuthorizationHeader(r *http.Request) (string, error) {
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		return "", fmt.Errorf("authorization header is not filled")
+	}
+
+	headerParts := strings.Split(authHeader, " ")
+	if len(headerParts) != 2 || headerParts[0] != "Bearer" {
+		return "", fmt.Errorf("invalid authorization header format")
+	}
+
+	username, err := validateJWT(headerParts[1])
+	if err != nil {
+		return "", fmt.Errorf("invalid token %w", err)
+	}
+	return username, nil
 }

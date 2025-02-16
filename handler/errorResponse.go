@@ -3,16 +3,13 @@ package handler
 import (
 	"encoding/json"
 	"fmt"
+	"merch-store/models"
 	"net/http"
 )
 
-type ErrorResponse struct {
-	Errors string `json:"errors,omitempty"`
-}
-
 func sendErrorResponse(w http.ResponseWriter, statusCode int, errorMessage string) error {
 
-	body, err := json.Marshal(ErrorResponse{
+	body, err := json.Marshal(models.ErrorResponse{
 		Errors: errorMessage,
 	})
 	if err != nil {

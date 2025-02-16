@@ -1,82 +1,70 @@
 package handler
 
-import "merch-store/models"
+import (
+	"log"
+	"merch-store/models"
+	"net/http"
 
-type InfoResponse struct {
-	// Количество доступных монет.
-	Coins       int32                           `json:"coins,omitempty"`
-	Inventory   []InfoResponseInventory         `json:"inventory,omitempty"`
-	CoinHistory *models.InfoResponseCoinHistory `json:"coinHistory,omitempty"`
-}
+	"github.com/jackc/pgx/v5"
+)
 
-type InfoResponseInventory struct {
-	Type_    string `json:"type,omitempty"`
-	Quantity int32  `json:"quantity,omitempty"`
-}
-
-/* func (api *API) GetInfo(w http.ResponseWriter, r *http.Request) {
+func (api *API) GetInfo(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		log.Printf("ERROR: Authorization header required")
+	username, err := validateAuthorizationHeader(r)
+	if username == "" || err != nil {
+		log.Printf("ERROR: Authorization failed. %v", err)
 		err := sendErrorResponse(w, http.StatusUnauthorized, "Неавторизован.")
 		if err != nil {
-			log.Printf("%v when authorization header is not filled", err)
+			log.Printf("ERROR: %v when Authorization failed", err)
+		}
+		return
+	}
+
+	userCoins, err := api.store.GetUserCoinsByUserName(ctx, username)
+	if err != nil || err == pgx.ErrNoRows {
+		log.Printf("ERROR: user not found: %v", err)
+		err := sendErrorResponse(w, http.StatusInternalServerError, "Внутренняя ошибка сервера")
+		if err != nil {
+			log.Printf("%v when user not found", err)
 		}
 
 		return
 	}
 
-	headerParts := strings.Split(authHeader, " ")
-	if len(headerParts) != 2 || headerParts[0] != "Bearer" {
-		log.Printf("ERROR: Invalid authorization header format")
-		err := sendErrorResponse(w, http.StatusUnauthorized, "Неавторизован.")
+	inventory, err := api.store.GetUserInventoryByUserId(ctx, userCoins.UserID)
+	if err != nil && err != pgx.ErrNoRows {
+		log.Printf("ERROR: failed to get user inventory: %v", err)
+		err := sendErrorResponse(w, http.StatusInternalServerError, "Внутренняя ошибка сервера")
 		if err != nil {
-			log.Printf("%v when authorization header is not valid", err)
+			log.Printf("%v when user not found", err)
+		}
+
+		return
+	}
+	coinHistory, err := api.store.GetCoinHistory(ctx, userCoins.UserID)
+	if err != nil && err != pgx.ErrNoRows {
+		log.Printf("ERROR: failed to get user inventory: %v", err)
+		err := sendErrorResponse(w, http.StatusInternalServerError, "Внутренняя ошибка сервера")
+		if err != nil {
+			log.Printf("%v when user not found", err)
 		}
 
 		return
 	}
 
-	username, err := validateJWT(headerParts[1])
+	err = sendResponse(w, models.APIResponse{
+		StatusCode: http.StatusOK,
+		Headers: map[string]string{
+			"Content-Type": "application/json; charset=UTF-8",
+		},
+		Body: models.InfoResponse{
+			Coins:       int32(userCoins.Coins),
+			Inventory:   inventory,
+			CoinHistory: *coinHistory,
+		},
+	})
+
 	if err != nil {
-		log.Printf("ERROR: Invalid token")
-		err := sendErrorResponse(w, http.StatusUnauthorized, "Неавторизован.")
-		if err != nil {
-			log.Printf("%v when Invalid token", err)
-		}
-
-		return
+		log.Printf("%v when trying to send a successful response.", err)
 	}
-
-	// var buf bytes.Buffer
-
-	// _, err = buf.ReadFrom(r.Body)
-	// if err != nil {
-	// 	log.Printf("ERROR: Failed to read request body")
-	// 	err := sendErrorResponse(w, http.StatusBadRequest, "Неверный запрос.")
-	// 	if err != nil {
-	// 		log.Printf("%v when failed to read request body", err)
-	// 	}
-
-	// 	return
-	// }
-
-	/*
-	   type InfoResponseInventory struct {
-	   	// Тип предмета.
-	   	Type_ string `json:"type,omitempty"`
-	   	// Количество предметов.
-	   	Quantity int32 `json:"quantity,omitempty"`
-
-	   type UserItem struct {
-	   	UserID   int
-	   	ItemId   int
-	   	Quantity int
-	   }
-
-
-
 }
-*/

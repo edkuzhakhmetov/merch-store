@@ -16,17 +16,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-type AuthRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-}
-
-type AuthResponse struct {
-	Token string `json:"token,omitempty"`
-}
-
 func (api *API) ApiAuth(w http.ResponseWriter, r *http.Request) {
-	var user AuthRequest
+	var user models.AuthRequest
 	var buf bytes.Buffer
 
 	ctx := r.Context()
@@ -35,19 +26,10 @@ func (api *API) ApiAuth(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		log.Printf("ERROR: failed to read request body: %v", err)
-		err := sendResponse(w, APIResponse{
-			StatusCode: http.StatusBadRequest,
-			Headers: map[string]string{
-				"Content-Type": "application/json; charset=UTF-8",
-			},
-			Body: ErrorResponse{
-				Errors: "Неверный запрос.",
-			},
-		})
+		err := sendErrorResponse(w, http.StatusBadRequest, "Неверный запрос.")
 		if err != nil {
-			log.Printf("%v when failed to read request body", err)
+			log.Printf("ERROR: %v when failed to read request body", err)
 		}
-
 		return
 	}
 
@@ -58,70 +40,43 @@ func (api *API) ApiAuth(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Printf("%v when invalid JSON format", err)
 		}
-
 		return
 	}
 
 	if user.Username == "" || user.Password == "" {
 		log.Println("ERROR: username and password are required")
-		err = sendResponse(w, APIResponse{
-			StatusCode: http.StatusBadRequest,
-			Headers: map[string]string{
-				"Content-Type": "application/json; charset=UTF-8",
-			},
-			Body: ErrorResponse{
-				Errors: "Неверный запрос. username и password должны быть заполнены",
-			},
-		})
-
+		err := sendErrorResponse(w, http.StatusBadRequest, "Неверный запрос. username и password должны быть заполнены")
 		if err != nil {
-			log.Printf("%v when username or password are not filled", err)
+			log.Printf("ERROR: %v when username or password are not filled", err)
 		}
 		return
 	}
 
 	internalUser, err := api.store.GetUserByUsername(ctx, user.Username)
 	if err != nil && (!errors.Is(err, pgx.ErrNoRows) || internalUser.ID != 0) {
-		log.Printf("ERROR: database error while fetching user: %v", err)
-		err = sendResponse(w, APIResponse{
-			StatusCode: http.StatusInternalServerError,
-			Headers: map[string]string{
-				"Content-Type": "application/json; charset=UTF-8",
-			},
-			Body: ErrorResponse{
-				Errors: "Внутренняя ошибка сервера",
-			},
-		})
-
+		log.Printf("ERROR: database error while fetching user or user not found: %v", err)
+		err := sendErrorResponse(w, http.StatusInternalServerError, "Внутренняя ошибка сервера")
 		if err != nil {
-			log.Printf("%v while fetching user", err)
+			log.Printf("ERROR: %v while fetching user", err)
 		}
 		return
 	}
+
+	var isCreated bool
 
 	if errors.Is(err, pgx.ErrNoRows) || internalUser.ID == 0 {
 		salt := make([]byte, 16)
 		_, err := rand.Read(salt)
 		if err != nil {
 			log.Printf("ERROR: failed to generate salt: %v", err)
-			err = sendResponse(w, APIResponse{
-				StatusCode: http.StatusInternalServerError,
-				Headers: map[string]string{
-					"Content-Type": "application/json; charset=UTF-8",
-				},
-				Body: ErrorResponse{
-					Errors: "Внутренняя ошибка сервера",
-				},
-			})
-
+			err := sendErrorResponse(w, http.StatusInternalServerError, "Внутренняя ошибка сервера")
 			if err != nil {
-				log.Printf("%v when failed to generate salt", err)
+				log.Printf("ERROR: %v when failed to generate salt", err)
 			}
 			return
 		}
 
 		hashedPassword := sha256.Sum256([]byte(user.Password + string(salt)))
-
 		internalUser, err = api.store.CreateUser(ctx, models.User{
 			Username:       user.Username,
 			HashedPassword: hex.EncodeToString(hashedPassword[:]),
@@ -130,39 +85,21 @@ func (api *API) ApiAuth(w http.ResponseWriter, r *http.Request) {
 		})
 		if err != nil {
 			log.Printf("ERROR: failed to create user: %v", err)
-			err = sendResponse(w, APIResponse{
-				StatusCode: http.StatusInternalServerError,
-				Headers: map[string]string{
-					"Content-Type": "application/json; charset=UTF-8",
-				},
-				Body: ErrorResponse{
-					Errors: "Внутренняя ошибка сервера",
-				},
-			})
-
+			err := sendErrorResponse(w, http.StatusInternalServerError, "Внутренняя ошибка сервера")
 			if err != nil {
-				log.Printf("%v when failed to create user", err)
+				log.Printf("ERROR: %v when failed to create user", err)
 			}
 			return
 		}
-
+		isCreated = true
 	}
 
 	salt, err := hex.DecodeString(internalUser.Salt)
 	if err != nil {
 		log.Printf("ERROR: failed to decode salt for user verification: %v", err)
-		err = sendResponse(w, APIResponse{
-			StatusCode: http.StatusInternalServerError,
-			Headers: map[string]string{
-				"Content-Type": "application/json; charset=UTF-8",
-			},
-			Body: ErrorResponse{
-				Errors: "Внутренняя ошибка сервера",
-			},
-		})
-
+		err := sendErrorResponse(w, http.StatusInternalServerError, "Внутренняя ошибка сервера")
 		if err != nil {
-			log.Printf("%v when failed to decode salt for user verification", err)
+			log.Printf("ERROR: %v when failed to decode salt for user verification", err)
 		}
 		return
 	}
@@ -172,18 +109,9 @@ func (api *API) ApiAuth(w http.ResponseWriter, r *http.Request) {
 
 	if !hmac.Equal([]byte(hashedInputPasswordHex), []byte(internalUser.HashedPassword)) {
 		log.Printf("ERROR: Invalid username or password for user: %s", user.Username)
-		err = sendResponse(w, APIResponse{
-			StatusCode: http.StatusUnauthorized,
-			Headers: map[string]string{
-				"Content-Type": "application/json; charset=UTF-8",
-			},
-			Body: ErrorResponse{
-				Errors: "Неавторизован.",
-			},
-		})
-
+		err := sendErrorResponse(w, http.StatusUnauthorized, "Неавторизован.")
 		if err != nil {
-			log.Printf("%v when Invalid username or password", err)
+			log.Printf("ERROR: %v when Invalid username or password", err)
 		}
 		return
 	}
@@ -191,28 +119,24 @@ func (api *API) ApiAuth(w http.ResponseWriter, r *http.Request) {
 	token, err := generateJWT(user.Username)
 	if err != nil {
 		log.Printf("ERROR: Failed to generate JWT for user: %s, error: %v", user.Username, err)
-		err = sendResponse(w, APIResponse{
-			StatusCode: http.StatusInternalServerError,
-			Headers: map[string]string{
-				"Content-Type": "application/json; charset=UTF-8",
-			},
-			Body: ErrorResponse{
-				Errors: "Неавторизован.",
-			},
-		})
-
+		err := sendErrorResponse(w, http.StatusInternalServerError, "Внутренняя ошибка сервера")
 		if err != nil {
-			log.Printf("ERROR: Failed to send successful response for user: %s, error: %v", user.Username, err)
+			log.Printf("ERROR: %v when failed to generate JWT for user", err)
 		}
 		return
 	}
 
-	err = sendResponse(w, APIResponse{
-		StatusCode: http.StatusOK,
+	status := http.StatusOK
+	if isCreated {
+		status = http.StatusCreated
+	}
+
+	err = sendResponse(w, models.APIResponse{
+		StatusCode: status,
 		Headers: map[string]string{
 			"Content-Type": "application/json; charset=UTF-8",
 		},
-		Body: AuthResponse{
+		Body: models.AuthResponse{
 			Token: token,
 		},
 	})

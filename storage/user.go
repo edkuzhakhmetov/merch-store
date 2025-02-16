@@ -17,11 +17,9 @@ func (s *StorePostgres) GetUserByUsername(ctx context.Context, username string) 
 
 	err := s.db.QueryRow(ctx, "SELECT id, username, hashed_password, salt, created_at FROM merch.users WHERE username = $1", username).
 		Scan(&user.ID, &user.Username, &user.HashedPassword, &user.Salt, &user.CreatedAt)
-
 	if err == pgx.ErrNoRows {
 		return models.User{}, pgx.ErrNoRows
 	}
-
 	if err != nil {
 		return models.User{}, fmt.Errorf("error retrieving user %s: %w", username, err)
 	}
@@ -71,13 +69,13 @@ func (s *StorePostgres) CreateUser(ctx context.Context, user models.User) (model
 	return newUser, nil
 }
 
-func (s *StorePostgres) GetUserCoinsByUserID(ctx context.Context, userID int) (int, error) {
-	var coins int
+// func (s *StorePostgres) GetUserCoinsByUserID(ctx context.Context, userID int) (int, error) {
+// 	var coins int
 
-	err := s.db.QueryRow(ctx, "SELECT coins FROM merch.user_coins WHERE user_id = $1", userID).Scan(&coins)
+// 	err := s.db.QueryRow(ctx, "SELECT coins FROM merch.user_coins WHERE user_id = $1", userID).Scan(&coins)
 
-	return coins, err
-}
+// 	return coins, err
+// }
 
 func (s *StorePostgres) GetUserCoinsByUserName(ctx context.Context, userName string) (models.UserCoin, error) {
 	var userCoin models.UserCoin

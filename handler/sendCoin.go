@@ -3,54 +3,26 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"log"
 	"merch-store/models"
 	"net/http"
-	"strings"
 	"time"
-)
 
-type SendCoinRequest struct {
-	ToUser string `json:"toUser"`
-	Amount int32  `json:"amount"`
-}
+	"github.com/jackc/pgx/v5"
+)
 
 func (api *API) ApiSendCoin(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		log.Printf("ERROR: Authorization header required")
+	username, err := validateAuthorizationHeader(r)
+	if username == "" || err != nil {
+		log.Printf("ERROR: Authorization failed. %v", err)
 		err := sendErrorResponse(w, http.StatusUnauthorized, "Неавторизован.")
 		if err != nil {
-			log.Printf("%v when authorization header is not filled", err)
+			log.Printf("ERROR: %v when Authorization failed", err)
 		}
-
 		return
 	}
-
-	headerParts := strings.Split(authHeader, " ")
-	if len(headerParts) != 2 || headerParts[0] != "Bearer" {
-		log.Printf("ERROR: Invalid authorization header format")
-		err := sendErrorResponse(w, http.StatusUnauthorized, "Неавторизован.")
-		if err != nil {
-			log.Printf("%v when authorization header is not valid", err)
-		}
-
-		return
-	}
-
-	username, err := validateJWT(headerParts[1])
-	if err != nil {
-		log.Printf("ERROR: Invalid token")
-		err := sendErrorResponse(w, http.StatusUnauthorized, "Неавторизован.")
-		if err != nil {
-			log.Printf("%v when Invalid token", err)
-		}
-
-		return
-	}
-
 	var buf bytes.Buffer
 
 	_, err = buf.ReadFrom(r.Body)
@@ -64,7 +36,7 @@ func (api *API) ApiSendCoin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req SendCoinRequest
+	var req models.SendCoinRequest
 	if err = json.Unmarshal(buf.Bytes(), &req); err != nil {
 		log.Printf("ERROR: invalid JSON format: %v", err)
 		err := sendErrorResponse(w, http.StatusBadRequest, "Неверный запрос. Некорректный формат JSON")
@@ -96,31 +68,45 @@ func (api *API) ApiSendCoin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sender, err := api.store.GetUserCoinsByUserName(ctx, username)
+
 	if err != nil || sender.UserID == 0 {
-		log.Printf("ERROR: sender cannot be empty.: %v", err)
+		log.Printf("ERROR: database error while fetching user coins: %v", err)
 		err := sendErrorResponse(w, http.StatusInternalServerError, "Внутренняя ошибка сервера")
 
 		if err != nil {
-			log.Printf("%v when sender isn't filled", err)
+			log.Printf("%v when fetching user coins", err)
 		}
 
 		return
 	}
+
 	if sender.Coins < int(req.Amount) {
 		log.Printf("insufficient coins: available %d, requested %d", sender.Coins, req.Amount)
-		err := sendErrorResponse(w, http.StatusBadRequest, "Неверный запрос. Недостаточно коинов")
+		err := sendErrorResponse(w, http.StatusPaymentRequired, "Недостаточно коинов")
 		if err != nil {
 			log.Printf("%v when insufficient coins", err)
 		}
+		return
 	}
 
 	recipient, err := api.store.GetUserCoinsByUserName(ctx, req.ToUser)
-	if err != nil || recipient.UserID == 0 {
-		log.Printf("ERROR: recipient cannot be empty: %v", err)
+	//if err != nil || recipient.UserID == 0 {
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		log.Printf("ERROR: database error while fetching recipient: %v", err)
 		err := sendErrorResponse(w, http.StatusInternalServerError, "Внутренняя ошибка сервера")
 
 		if err != nil {
-			log.Printf("%v when recipient isn't filled", err)
+			log.Printf("%v fetching recipient", err)
+		}
+
+		return
+	}
+
+	if errors.Is(err, pgx.ErrNoRows) || recipient.UserID == 0 {
+		log.Printf("ERROR: recipient not found: %v", err)
+		err := sendErrorResponse(w, http.StatusNotFound, "Такой получатель не найден")
+		if err != nil {
+			log.Printf("ERROR: %v when recipient not found", err)
 		}
 
 		return
@@ -139,7 +125,18 @@ func (api *API) ApiSendCoin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-	w.WriteHeader(http.StatusOK)
+	err = sendResponse(w, models.APIResponse{
+		StatusCode: http.StatusCreated,
+		Headers: map[string]string{
+			"Content-Type": "application/json; charset=UTF-8",
+		},
+		Body: models.MessageResponse{
+			Message: "Операция выполнена успешно",
+		},
+	})
+
+	if err != nil {
+		log.Printf("%v when trying to send a successful response.", err)
+	}
 
 }
